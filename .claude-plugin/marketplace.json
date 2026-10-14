@@ -1,0 +1,6 @@
+{
+  "name": "prompt-upgrade",
+  "owner": { "name": "csfoo28" },
+  "description": "Prompt Upgrade: turns a rough prompt into a clear one before Claude Code sends it.",
+  "plugins": [{ "name": "prompt-upgrade", "source": "./" }]
+}
