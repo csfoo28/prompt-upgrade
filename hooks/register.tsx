@@ -102,7 +102,7 @@ async function startUpgrade($: Engine, original: string, options: { sayWhy: bool
     await closePane($)
     await $.prompt.fill({ text: original })
     if (options.sayWhy) {
-      $.ui.log('Prompt Upgrade: the window is too narrow for its pane, so your words are back in the prompt box.')
+      $.ui.log('Prompt Upgrade could not show its pane here, so your words are back in the prompt box.')
     }
     return false
   }
@@ -315,23 +315,23 @@ export const register: Register = on => {
       const past = await read($, historyAtom)
       if (past.length === 0) return { text: 'No upgrades yet. Try /better followed by a rough prompt.' }
       await update($, viewAtom, () => 'history' as View)
-      void openPane($).then(isPlaced => {
-        if (!isPlaced) $.ui.log('Prompt Upgrade: the window is too narrow for its pane.')
-      })
+      // Opened before the command answers, so it counts as the person's own
+      // open and is placed at any width.
+      if (!(await openPane($))) return { text: 'Prompt Upgrade could not show its pane here.' }
       return { text: `Showing your last ${past.length} upgrade${past.length === 1 ? '' : 's'} in the Prompt Upgrade pane.` }
     }
     if (args === '') {
       await update($, viewAtom, () => 'flow' as View)
       await update($, flowAtom, () => freshFlow('', 'compose', Date.now()))
-      void openPane($).then(async isPlaced => {
-        if (!isPlaced) {
-          await update($, flowAtom, () => null)
-          $.ui.log('Prompt Upgrade: the window is too narrow for its pane.')
-        }
-      })
+      if (!(await openPane($))) {
+        await update($, flowAtom, () => null)
+        return { text: 'Prompt Upgrade could not show its pane here. Type /better followed by your prompt instead.' }
+      }
       return { text: 'Type your prompt in the Prompt Upgrade pane.' }
     }
-    void startUpgrade($, args, { sayWhy: true })
+    if (!(await startUpgrade($, args, { sayWhy: false }))) {
+      return { text: 'Prompt Upgrade could not show its pane here, so your words are back in the prompt box.' }
+    }
     return { text: 'Upgrading your prompt in the Prompt Upgrade pane.' }
   }).catch(() => ({ text: 'Prompt Upgrade could not run that command. Your prompt was not sent.' }))
 
@@ -356,7 +356,7 @@ export const register: Register = on => {
     return {
       drop: isPlaced
         ? 'Sent to Prompt Upgrade. Start a prompt with > to send it as-is.'
-        : 'Prompt Upgrade: the window is too narrow for its pane, so your words are back in the prompt box.',
+        : 'Prompt Upgrade could not show its pane here, so your words are back in the prompt box.',
     }
   }).catch(($, e, next) => next(e))
 
@@ -435,21 +435,32 @@ export const register: Register = on => {
       )
     }
 
-    const goldChip = (key: string, label: string, onPress: (p: UiPressArgument) => void) => (
-      <Button key={key} plain={true} onPress={onPress}>
+    // `first` puts the keyboard focus there when the pane opens, so Enter acts
+    // at once in a terminal instead of the focus starting on nothing.
+    const focusProp = (first?: boolean) => (first ? { autoFocus: true as const } : {})
+    const goldChip = (key: string, label: string, onPress: (p: UiPressArgument) => void, first?: boolean) => (
+      <Button key={key} plain={true} onPress={onPress} {...focusProp(first)}>
         <Text backgroundColor={GOLD} color={INK} bold>{` ${label} `}</Text>
       </Button>
     )
-    const slateChip = (key: string, label: string, onPress: (p: UiPressArgument) => void) => (
-      <Button key={key} plain={true} onPress={onPress}>
+    const slateChip = (key: string, label: string, onPress: (p: UiPressArgument) => void, first?: boolean) => (
+      <Button key={key} plain={true} onPress={onPress} {...focusProp(first)}>
         <Text backgroundColor={LINE} color={TEXT}>{` ${label} `}</Text>
       </Button>
     )
-    const quiet = (key: string, label: string, onPress: (p: UiPressArgument) => void) => (
-      <Button key={key} plain={true} dimColor onPress={onPress}>
+    const quiet = (key: string, label: string, onPress: (p: UiPressArgument) => void, first?: boolean) => (
+      <Button key={key} plain={true} dimColor onPress={onPress} {...focusProp(first)}>
         <Text color={MUTED}>{label}</Text>
       </Button>
     )
+
+    /** How to drive the pane from the keyboard; the terminal's alone. */
+    const keysHint = () =>
+      e.surface === 'terminal' ? (
+        <Text color={MUTED} wrap="truncate">
+          {fit('Tab or arrows move · Enter picks · Esc cancels · ctrl+x tab returns here', W)}
+        </Text>
+      ) : null
 
     /** Upgraded text with its [placeholders] in amber. */
     const withPlaceholders = (text: string) =>
@@ -469,6 +480,7 @@ export const register: Register = on => {
         {header()}
         {current === null ? null : tracker(current)}
         {...(body as never[])}
+        {keysHint()}
       </Box>
     )
 
@@ -485,7 +497,7 @@ export const register: Register = on => {
               const when = timeLabel(entry.at, now)
               const room = Math.max(4, W - when.length - 3)
               return (
-                <Button key={`past-${entry.id}`} plain={true} onPress={() => openFromHistory($, entry)}>
+                <Button key={`past-${entry.id}`} plain={true} onPress={() => openFromHistory($, entry)} {...focusProp(entry === history[0])}>
                   <Text color={TEXT}>{fit(entry.original, room)}</Text>
                   <Text color={MUTED}>{'  ' + when}</Text>
                 </Button>
@@ -494,7 +506,7 @@ export const register: Register = on => {
           </Box>
         ),
         <Box flexDirection="row" gap={2}>
-          {quiet('close', 'Close', () => cancel($))}
+          {quiet('close', 'Close', () => cancel($), history.length === 0)}
         </Box>,
       ])
     }
@@ -504,7 +516,7 @@ export const register: Register = on => {
     if (!flow) {
       return shell(null, [
         <Text color={MUTED}>Nothing to upgrade. Type /better followed by a rough prompt.</Text>,
-        <Box flexDirection="row">{quiet('close', 'Close', () => closePane($))}</Box>,
+        <Box flexDirection="row">{quiet('close', 'Close', () => closePane($), true)}</Box>,
       ])
     }
 
@@ -544,7 +556,7 @@ export const register: Register = on => {
         heading('Your prompt'),
         <Text color={MUTED} wrap="truncate">{fit('Reading your prompt and picking the questions that matter.', W)}</Text>,
         card('YOURS', MUTED, LINE, W, <Text color={TEXT}>{flow.original}</Text>),
-        <Box flexDirection="row">{quiet('cancel', 'Cancel', () => cancel($))}</Box>,
+        <Box flexDirection="row">{quiet('cancel', 'Cancel', () => cancel($), true)}</Box>,
       ])
     }
 
@@ -553,6 +565,7 @@ export const register: Register = on => {
     if (flow.step === 'questions') {
       const answered = flow.answers.filter(a => a !== null).length
       const total = flow.questions.length
+      const firstOpen = flow.answers.findIndex(a => a === null)
       return shell(current, [
         heading('Your prompt'),
         <Text color={MUTED} wrap="truncate">{fit(flow.original, W)}</Text>,
@@ -577,8 +590,8 @@ export const register: Register = on => {
               <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginLeft={4} width={W - 4}>
                 {q.options.map((opt, j) =>
                   picked === opt
-                    ? goldChip(`q${i}-o${j}`, opt, () => answer($, id, i, { kind: 'pick', value: opt }))
-                    : slateChip(`q${i}-o${j}`, opt, () => answer($, id, i, { kind: 'pick', value: opt })),
+                    ? goldChip(`q${i}-o${j}`, opt, () => answer($, id, i, { kind: 'pick', value: opt }), i === firstOpen && j === 0)
+                    : slateChip(`q${i}-o${j}`, opt, () => answer($, id, i, { kind: 'pick', value: opt }), i === firstOpen && j === 0),
                 )}
                 {Input
                   ? isOther
@@ -630,7 +643,7 @@ export const register: Register = on => {
           )}
         </Text>,
         card('YOURS', MUTED, LINE, W, <Text color={TEXT}>{flow.original}</Text>),
-        <Box flexDirection="row">{quiet('cancel', 'Cancel', () => cancel($))}</Box>,
+        <Box flexDirection="row">{quiet('cancel', 'Cancel', () => cancel($), true)}</Box>,
       ])
     }
 
@@ -645,7 +658,7 @@ export const register: Register = on => {
           <Text color={MUTED} wrap="wrap">{flow.error?.reason ?? 'The model did not answer.'}</Text>
         </Box>,
         <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-          {goldChip('retry', 'Try again', () => retry($, id))}
+          {goldChip('retry', 'Try again', () => retry($, id), true)}
           {slateChip('send-original', 'Send my original', () => runText($, flow.original))}
           {quiet('cancel', 'Cancel', () => cancel($))}
         </Box>,
@@ -712,7 +725,7 @@ export const register: Register = on => {
       </Box>
     ) : (
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-        {goldChip('run', 'Run it', () => runText($, upgrade.text))}
+        {goldChip('run', 'Run it', () => runText($, upgrade.text), true)}
         {Input ? slateChip('edit', 'Edit', () => patchFlow($, id, f => ({ ...f, isEditing: true, isCopied: false }))) : null}
         {slateChip('copy', flow.isCopied ? 'Copied' : 'Copy', press =>
           $.ui.copy({ text: upgrade.text, surface: press.surface }).then(r =>

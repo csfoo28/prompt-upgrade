@@ -204,13 +204,38 @@ describe('nothing is lost', () => {
     expect(seen.sent.map(s => s.text)).toEqual(['summarise the quarterly numbers for the board'])
   })
 
-  test('a window too narrow for the pane puts the words back and says so once', async ($, on) => {
+  test('a pane that cannot be shown puts the words back and says so once', async ($, on) => {
     const { seen } = world(on, { isPlaced: false })
     await better($, 'on')
     const result = await typePrompt($, 'draft a reply to the landlord about the leak')
-    expect(result.drop).toMatch(/too narrow/)
+    expect(result.drop).toMatch(/could not show its pane/)
     expect(seen.filled).toContain('draft a reply to the landlord about the leak')
     expect(seen.sent).toHaveLength(0)
+  })
+})
+
+describe('the command opens the pane itself', () => {
+  // The open must happen before the command answers: only then is it the
+  // person's own open, which the terminal places at any width.
+  test('/better <prompt> opens the pane before it answers', async ($, on) => {
+    const { seen } = world(on)
+    const result = await better($, 'write a cover letter')
+    expect(seen.opened).toBe(1)
+    expect(result.text).toMatch(/Upgrading your prompt/)
+  })
+
+  test('/better <prompt> says so when the pane cannot be shown', async ($, on) => {
+    const { seen } = world(on, { isPlaced: false })
+    const result = await better($, 'write a cover letter')
+    expect(result.text).toMatch(/could not show its pane/)
+    expect(seen.filled).toContain('write a cover letter')
+    expect(seen.sent).toHaveLength(0)
+  })
+
+  test('/better alone says so when the pane cannot be shown', async ($, on) => {
+    world(on, { isPlaced: false })
+    const result = await better($, '')
+    expect(result.text).toMatch(/Type \/better followed by your prompt/)
   })
 })
 
