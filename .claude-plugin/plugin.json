@@ -1,6 +1,6 @@
 {
   "name": "prompt-upgrade",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": { "name": "Foo" },
   "description": "Turns a rough prompt into a clear one in a side pane: a few quick questions, a rewrite, and a side-by-side review before anything is sent.",
   "types": "./types/index.d.ts"
